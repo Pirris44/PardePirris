@@ -5,9 +5,19 @@
 #include <GameFramework/SpringArmComponent.h>
 #include <Camera/CameraComponent.h>
 #include <GameFramework/Controller.h>
+#include "SkillProjectile.h"
+#include "ProjectileSkill.h"
+#include "BaseSkill.h"
+#include "Kismet/GameplayStatics.h"
+#include "DrawDebugHelpers.h"
 #include <GameFramework/CharacterMovementComponent.h>
 #include <EnhancedInputSubsystems.h>
 #include <EnhancedInputComponent.h>
+#include "Components/SphereComponent.h"
+#include <GameFramework/ProjectileMovementComponent.h>
+
+
+
 
 // Sets default values
 AMainCharacter::AMainCharacter()
@@ -57,13 +67,85 @@ void AMainCharacter::BeginPlay()
 	}
 }
 
+
 // Called every frame
 void AMainCharacter::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
   
+	if (ActiveSkillIndex != -1)
+	{
+		UpdateSkillPrediction();
+	}
 }
 
+void AMainCharacter::TakeDamage(float DamageAmount)
+{
+}
+
+void AMainCharacter::Heal(float HealAmount)
+{
+}
+
+void AMainCharacter::Die()
+{
+}
+
+
+// Habilidad de apuntado y predicción
+
+void AMainCharacter::UpdateSkillPrediction()
+{
+	if (!PredictionProjectileClass) return;
+
+	// Obtener la clase de proyectil para obtener la velocidad
+	const ASkillProjectile* DefaultProjectile = Cast<ASkillProjectile>(PredictionProjectileClass.GetDefaultObject());
+	if (!DefaultProjectile || !DefaultProjectile->ProjectileMovement || !DefaultProjectile->CollisionComponent)
+		return;
+
+	FVector LaunchVelocity = GetActorForwardVector() * DefaultProjectile->ProjectileMovement->InitialSpeed;
+	FVector StartLocation = GetActorLocation() + GetActorForwardVector() * 50.f + FVector(0.f, 0.f, 50.f);
+
+	FPredictProjectilePathParams Params;
+	Params.StartLocation = StartLocation;
+	Params.LaunchVelocity = LaunchVelocity;
+	Params.ProjectileRadius = DefaultProjectile->CollisionComponent->GetScaledSphereRadius();
+	Params.bTraceWithChannel = true;
+	Params.OverrideGravityZ = 0.0f;
+	Params.OverrideGravityZ = true;
+	Params.TraceChannel = ECC_Visibility;
+	Params.ActorsToIgnore.Add(this);
+	Params.DrawDebugType = EDrawDebugTrace::ForDuration; // Dibujar línea para debug.
+	
+	FPredictProjectilePathResult Result;
+	UGameplayStatics::PredictProjectilePath(this, Params, Result);
+
+	// Dibuja una línea roja si no usas un componente visual
+	if (Result.PathData.Num() > 1)
+	{
+		for (int32 i = 0; i < Result.PathData.Num() - 1; ++i)
+		{
+			DrawDebugLine(
+				GetWorld(),
+				Result.PathData[i].Location,
+				Result.PathData[i + 1].Location,
+				FColor::Red,
+				false,
+				0.f,
+				0,
+				3.f
+			);
+		}
+	}
+}
+
+void AMainCharacter::UseSkill(int32 Index)
+{
+	if(Skills.IsValidIndex(Index)&& Skills[Index])
+	{
+		Skills[Index]->Activate(this);
+	}
+}
 
 
 
@@ -79,6 +161,12 @@ void AMainCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCompo
 		EnhancedInput->BindAction(MoveLeftAction, ETriggerEvent::Triggered, this, &AMainCharacter::MoveLeft);
 		EnhancedInput->BindAction(JumpActionInput, ETriggerEvent::Triggered, this, &AMainCharacter::JumpAction);
 		EnhancedInput->BindAction(LookAction, ETriggerEvent::Triggered, this, &AMainCharacter::Look);
+
+		EnhancedInput->BindAction(Skill1Action, ETriggerEvent::Started, this, &AMainCharacter::StartSkill1Targeting);
+		EnhancedInput->BindAction(Skill1Action, ETriggerEvent::Completed, this, &AMainCharacter::ExecuteSkill1);
+		EnhancedInput->BindAction(Skill2Action, ETriggerEvent::Triggered, this, &AMainCharacter::Skill2);
+		EnhancedInput->BindAction(Skill3Action, ETriggerEvent::Triggered, this, &AMainCharacter::Skill3);
+		EnhancedInput->BindAction(Skill4Action, ETriggerEvent::Triggered, this, &AMainCharacter::Skill4);
 	}
 }
 void AMainCharacter::MoveForward(const FInputActionValue& Value)
@@ -133,6 +221,54 @@ void AMainCharacter::JumpAction(const FInputActionValue& Value)
 	else
 		StopJumping();
 }
+
+void AMainCharacter::Skill1()
+{
+	UE_LOG(LogTemp, Warning, TEXT("Skill 1 pressed!"));
+	UseSkill(0);
+}
+void AMainCharacter::StartSkill1Targeting()
+{
+	// Mostrar la línea de predicción para la habilidad 0
+	ToggleSkillTargeting(0, true);
+}
+
+// Funcion que se enlaza al ETriggerEvent::Completed
+void AMainCharacter::ExecuteSkill1()
+{
+	// Ocultar la línea de predicción
+	ToggleSkillTargeting(0, false);
+
+	// Ejecutar la habilidad
+	UE_LOG(LogTemp, Warning, TEXT("Skill 1 executed!"));
+	UseSkill(0);
+}
+void AMainCharacter::ToggleSkillTargeting(int32 SkillIndex, bool bIsTargeting)
+{
+	ActiveSkillIndex = bIsTargeting ? SkillIndex : -1;
+
+	if (bIsTargeting)
+	{
+		// Si activamos, queremos actualizar la predicción cada frame
+		PrimaryActorTick.bCanEverTick = true;
+	}
+	else
+	{
+		
+	}
+}
+void AMainCharacter::Skill2()
+{
+}
+
+void AMainCharacter::Skill3()
+{
+}
+
+void AMainCharacter::Skill4()
+{
+}
+
 void AMainCharacter::Look(const FInputActionValue& Value)
 {
 	FVector2D LookAxis = Value.Get<FVector2D>();
@@ -155,4 +291,9 @@ void AMainCharacter::Look(const FInputActionValue& Value)
 		PC->SetControlRotation(ControlRotation);
 	}
 	//AddControllerPitchInput(LookAxis.Y * MouseSensitivity);
+}
+
+void AMainCharacter::ApplyDamageToEnemy(float Damage)
+{
+
 }
